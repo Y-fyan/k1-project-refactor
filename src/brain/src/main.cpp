@@ -44,9 +44,6 @@ public:
           brain_([this](const string& line) {
               RCLCPP_INFO(get_logger(), "%s", line.c_str());
           }) {
-        teamId_ = declare_parameter<int>("team_id", 8);
-        playerId_ = declare_parameter<int>("player_id", 1);
-        if(playerId_ < 1) throw invalid_argument("player_id must be positive");
         brain_.init(*this);
 
         // Motion 的里程计：机器人相对启动原点的平面位置和朝向。
@@ -74,20 +71,26 @@ public:
         gameSub_ = create_subscription<game_controller_interface::msg::GameControlData>(
             "/robocup/game_controller", 1,
             [this](const game_controller_interface::msg::GameControlData::SharedPtr msg) {
-                int own = -1;
-                if(msg->teams[0].team_number == teamId_) own = 0;
-                else if(msg->teams[1].team_number == teamId_) own = 1;
-                if(own < 0) return;
-                const auto& team = msg->teams[own];
-                if(static_cast<size_t>(playerId_) > team.players.size()) return;
-                brain::GameState value;
-                value.team = teamId_;
-                value.state = msg->state;
-                value.secondaryState = msg->secondary_state;
-                value.ownScore = team.score;
-                value.opponentScore = msg->teams[1 - own].score;
-                value.penalty = team.players[playerId_ - 1].penalty;
-                brain_.game.write(value, inputTime());
+                gc::Packet value;
+                for(unsigned i=0;i<4;++i) value.header[i]=msg->header[i];
+                value.version=msg->version; value.number=msg->packet_number; value.playersPerTeam=msg->players_per_team;
+                value.competitionType=msg->competition_type; value.stopped=msg->stopped; value.phase=msg->game_phase;
+                value.state=msg->state; value.setPlay=msg->set_play; value.firstHalf=msg->first_half; value.kickingTeam=msg->kicking_team;
+                value.secsRemaining=msg->secs_remaining; value.secondaryTime=msg->secondary_time;
+                for(unsigned i=0;i<2;++i) {
+                    const auto& from=msg->teams[i]; gc::Team& to=value.teams[i];
+                    to.number=from.team_number; to.fieldColour=from.field_player_colour; to.keeperColour=from.goalkeeper_colour;
+                    to.goalkeeper=from.goalkeeper; to.score=from.score; to.penaltyShot=from.penalty_shot;
+                    to.singleShots=from.single_shots; to.messageBudget=from.message_budget;
+                    for(unsigned j=0;j<gc::maxPlayers;++j) {
+                        to.players[j].penalty=from.players[j].penalty;
+                        to.players[j].secsTillUnpenalised=from.players[j].secs_till_unpenalised;
+                        to.players[j].cautions=from.players[j].cautions;
+                    }
+                }
+                const double received=msg->received_at;
+                if(!isfinite(received) || received<0 || received>inputTime()) value=gc::Packet();
+                brain_.game.write(value,isfinite(received) ? received : 0);
             });
 
         // 物体观测：视觉识别出的球、机器人、场地标志点等物体及其位置、类别和置信度。
@@ -150,7 +153,6 @@ public:
 
 private:
     brain::Brain brain_;
-    int teamId_, playerId_;
     rclcpp::TimerBase::SharedPtr tickTimer_;
     rclcpp::Subscription<booster_interface::msg::Odometer>::SharedPtr odometrySub_;
     rclcpp::Subscription<booster_interface::msg::LowState>::SharedPtr jointSub_;

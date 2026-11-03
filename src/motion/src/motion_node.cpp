@@ -402,7 +402,7 @@ private:
             Eigen::AngleAxisd(lowState_.imu_state.rpy[0], Eigen::Vector3d::UnitX());
         const Eigen::VectorXd window = odomState_.observation.push(odomFrame(), orientation);
         // Dribble 与普通走路的接触节奏不同，里程计模型由 Motion 按当前控制模式选择。
-        const unsigned slot = !runtime_.manualControl && brain_.kick.active ? 1 : 0;
+        const unsigned slot = brainKickActive() ? 1 : 0;
         const Eigen::Vector2d delta = odomModels_[slot].infer(window);
         const double yaw = odomState_.observation.firstYaw();
         const double c = cos(yaw), s = sin(yaw);
@@ -438,7 +438,8 @@ private:
         if(runtime_.manualControl) return manual_.move;
         if(brain_.hasMove && chrono::steady_clock::now() - brain_.moveReceived
             < chrono::milliseconds(kBrainMoveTimeoutMs)) return brain_.move;
-        return manual_.move;
+        static const motion::msg::MoveRequest stopped;
+        return stopped;
     }
 
     double smoothSpeed(double current, double requested, double acceleration, double deceleration) const {
@@ -702,9 +703,14 @@ private:
         RCLCPP_INFO(get_logger(), "Custom controller stopped; robot switched to Walking");
     }
 
+    bool brainKickActive() const {
+        return !runtime_.manualControl && brain_.kick.active &&
+            chrono::steady_clock::now()-brain_.kickReceived < chrono::milliseconds(kKickBallTimeoutMs) &&
+            brain_.kick.model_slot < kickPolicies_.size() && kickReady_[brain_.kick.model_slot];
+    }
+
     void updateTarget() {
-        if(!runtime_.manualControl && brain_.kick.active && brain_.kick.model_slot < kickPolicies_.size()
-           && kickReady_[brain_.kick.model_slot]) {
+        if(brainKickActive()) {
             const int slot = brain_.kick.model_slot;
             if(runtime_.activeKickSlot != slot) {
                 kickPolicies_[slot].reset();

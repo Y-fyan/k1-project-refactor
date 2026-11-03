@@ -33,7 +33,7 @@ Motion 运行模型并输出关节目标
 Brain 是固定 tick 的数据流执行器。启动时根据各模块声明的输入输出做依赖检查和拓扑排序；运行时只按固定顺序调用模块，不在每帧重新排图。
 
 ```text
-Odometry, JointData, VisionState, FieldLines, GameState, HeadPose, RecoveryState
+Odometry, JointData, VisionState, FieldLines, GameControllerData, HeadPose, RecoveryState
   ├─→ SelfState
   ├─→ Observations
   └─→ FieldProvider
@@ -41,7 +41,8 @@ Odometry, JointData, VisionState, FieldLines, GameState, HeadPose, RecoveryState
 SelfState + Observations + FieldModel ─→ Localization
 Observations ──────────────────────────→ BallState
 FieldModel + Localization + BallState + Observations ─→ FieldPotential
-BallState ─────────────────────────────→ Strategy
+GameControllerData + BallState + SelfState + FieldModel ─→ GameState
+GameState + BallState ─────────────────────────────────→ Strategy
 Strategy + BallState + FieldPotential ─→ Skill
 Skill ─────────────────────────────────→ Actuation ─→ motion topics
 ```
@@ -54,10 +55,12 @@ Skill ────────────────────────�
 - **Localization**：维护机器人到场地坐标系的位姿估计。
 - **BallState**：对球观测做确认、平滑和短时保持，避免单帧漏检直接扰动策略。
 - **FieldPotential**：计算场地偏好、近处机器人/人员斥力和建议出球方向，不决定是否踢球，也不代替身体路径规划。
-- **Strategy**：选择当前高层 Skill，例如找球（FindBall）或带球（Dribble）。
+- **GameState**：整理 HSL v20 裁判状态、处罚和定位球权限，断流后停止自主行动。
+- **Strategy**：依据裁判权限选择站立（Stand）、找球（FindBall）或带球（Dribble）。
 - **Skill**：将 Strategy 翻译成头部、移动和踢球请求。
 - **Actuation**：Brain 与运控包之间的薄适配层，只转发请求，不保存动作状态机。
 - **Motion**：独立的低层模型运行包，读取请求和 LowState，运行官方导出模型，最终准备关节目标。
+- **GameControllerReturn**：组装本机 v4 回报；裁判节点负责回到有效来源 IP。
 - **Rerun**：只观察数据流和世界状态，不向业务链路写回数据。
 
 ## 模块约定
@@ -167,7 +170,8 @@ src/
 
 ### P1：补齐单机比赛必需功能
 
-- [ ] **裁判状态与比赛策略**：当前保留基础裁判输入；重新实现独立状态整理，并让 Initial / Ready / Set / Playing / Finished、处罚和开球权真正约束行动。用于验证规范的 GameController 测试实现已撤销。
+- [x] **裁判 v20 基础约束**：独立 GameState 模块处理比赛阶段、暂停、处罚、场地类别和 2.5s 断流；Stand 不触发找球转身。UDP 节点校验 158 字节包、过滤乱序并以 1Hz 回报 v4。仅完成离线验证，尚未真机验收。
+- [ ] **完整比赛技能与二次触球**：READY 保持站立，未增加自主场地站位；现有 Dribble 面向球门，不能冒充间接传球。自方开球、间接任意球、界外球以及已确认球移动后的自方定位球保守等待，直至新的裁判阶段或明确自由球数据；没有伪造队友触球证据。对方定位球须有真实视觉球位的位移证据才释放，超时不会自动解除。
 - [ ] **场地走位**：补齐 `MoveToPoseOnField`、Ready/定位球站位和 `GoBackInField` 对应能力；验收为能到目标位置并正确停止。
 - [ ] **自主起身与恢复**：对齐 `CheckAndStandUp` 的能力，明确 Custom 控制与起身控制的交接，以及恢复后的定位处理。
 - [ ] **场线定位融合**：候选与校正代码已有，但因漂移默认关闭；先核对线观测、关联和校正效果，确认不引入漂移后再启用。
@@ -179,3 +183,25 @@ src/
 - [ ] **专用技能**：按比赛需要补齐 `Intercept`、守门封堵、绕球调整和独立射门等能力，不把 Dribble 等同于完整追球/调整/射门策略。
 
 声音、挥手、调试动作及自动标定等辅助入口暂不列为主链迁移优先项。完成任务时更新对应条目与验收结果，不因有同名类或接口就勾选。
+
+## 裁判机 v20 接口
+
+`game_controller_interface/include/game_controller_interface/protocol.hpp` 是唯一网络定义：
+接收 `RGme` v20 / 158 字节，回报 `RGrt` v4 / 32 字节；显式小端编码，20 个球衣槽位。
+`GameControlData` 是完整 ROS 映射；`GameControlReturnData` 是 Brain 到接收节点的本机反馈。
+两条 ROS 消息附带同机单调时钟时间，旧消息排队不会续期；接收节点与 Brain 应在同一机器人运行。
+
+接收节点在 UDP 3838 收包，仅有效新包刷新状态；重复/旧序号不续期，断流 2s 后可重同步。
+`expected_team_id=0` 时从 Brain 回报的队号过滤；单独调试接收节点时可在包内
+`game_controller/config/config.yaml` 指定队号与白名单。默认移除了现场固定 IP。
+回报只发往最近有效裁判包的来源 IP、UDP 3939；接收和本机回报任一超过 2s 即暂停发送。
+Brain 内部米转换为回报毫米，朝向弧度、球龄秒；未见球使用 -1，恢复状态未知按不可比赛回报。
+
+GameState 是显式依赖，权限传给 Strategy 和 Skill；INITIAL/READY/SET/FINISHED、
+`stopped`、TIMEOUT、处罚、恢复中、场地类别不匹配及 GC 断流均输出零速、禁踢。
+裁判明确撤销定位球并将 kickingTeam 置为 255 时按自由球处理，不用内部超时猜测放行。
+本轮没有实现 READY 自动走位、专用点球守门或团队二次触球识别，不移植旧行为树的宽松例外。
+这些限制只作用于 Brain 自主请求；既有手柄 Custom/Brain/手动切换及退出操作保持不变。
+禁止动作时仍由当前 Motion 控制器保持零速支撑，不因此切 Damping 或退出运控进程。
+Brain 请求过期 250ms 后，Motion 停止旧踢球并平滑归零，不沿用旧手柄速度作为自主输入。
+修改接口消息后须重新构建 `game_controller_interface`、`game_controller`、`brain` 及其依赖。

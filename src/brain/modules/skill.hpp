@@ -70,10 +70,10 @@ public:
         double searchTurn = 0.4;
     };
 
-    SkillModule(const Strategy& strategy, const BallState& ball,
+    SkillModule(const GameState& game, const Strategy& strategy, const BallState& ball,
                 const LocalizationState& localization, const FieldPotential& potential,
                 const SelfState& self, const double& now)
-        : strategy_(strategy), ball_(ball), localization_(localization),
+        : game_(game), strategy_(strategy), ball_(ball), localization_(localization),
           potential_(potential), self_(self), now_(now) {}
 
     HeadRequest head;
@@ -81,7 +81,7 @@ public:
     KickRequest kick;
 
     ModuleInfo info() const override {
-        return {"Skill", {"Strategy", "BallState", "LocalizationState",
+        return {"Skill", {"GameState", "Strategy", "BallState", "LocalizationState",
                            "FieldPotential", "SelfState", "FrameTime"},
                 {"HeadRequest", "MotionRequest", "KickRequest"}};
     }
@@ -95,8 +95,8 @@ public:
         head = updateHead();
         motion.forward = 0;
         motion.left = 0;
-        motion.turn = strategy_.skill == Strategy::FindBall ? config_.searchTurn : 0;
-        const bool active = strategy_.skill == Strategy::Dribble && potential_.valid;
+        motion.turn = game_.canMove && strategy_.skill == Strategy::FindBall ? config_.searchTurn : 0;
+        const bool active = game_.canKick && strategy_.skill == Strategy::Dribble && potential_.valid;
         // 一次动作只选一次方向，用里程计保存朝向，避开定位修正造成的跳变。
         if(active && !kick.active)
             kickDirectionToOdom_ = wrapAngle(potential_.directionToField
@@ -216,6 +216,7 @@ private:
         return result;
     }
 
+    const GameState& game_;
     const Strategy& strategy_;
     const BallState& ball_;
     const LocalizationState& localization_;

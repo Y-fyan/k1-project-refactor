@@ -3,6 +3,7 @@
 #include "common/input_port.h"
 #include "common/geometry.hpp"
 #include <array>
+#include <game_controller_interface/protocol.hpp>
 #include <string>
 #include <vector>
 
@@ -29,10 +30,7 @@ struct JointData {
     vector<JointState> serial;
     vector<JointState> parallel;
 };
-struct GameState {
-    int state = 0, secondaryState = 0, team = 0;
-    int ownScore = 0, opponentScore = 0, penalty = 0;
-};
+
 // ROS 入口只做字段转换；是否采用某个观测由观测模块决定。
 struct Detection {
     string label, color;
@@ -65,7 +63,7 @@ struct InputFrame {
     double now = 0;
     Sample<Odometry> odometry;
     Sample<JointData> joint;
-    Sample<GameState> game;
+    Sample<gc::Packet> game;
     Sample<VisionState> vision;
     Sample<FieldLines> fieldLines;
     Sample<HeadPose> headPose;

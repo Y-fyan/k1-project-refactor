@@ -155,16 +155,16 @@ public:
 
     RerunModule(const FieldModel& field, const SelfState& self, const Observations& observations,
                 const LocalizationState& localization, const BallState& ball, const FieldPotential& fieldPotential,
-                const Strategy& strategy,
+                const GameState& game, const Strategy& strategy,
                 const HeadRequest& head, const MotionRequest& motion,
                 const KickRequest& kick, const ActuationState& actuation, const double& now)
         : field_(field), self_(self), observations_(observations), localization_(localization),
-          ball_(ball), fieldPotential_(fieldPotential), strategy_(strategy), head_(head), motion_(motion), kick_(kick),
+          ball_(ball), fieldPotential_(fieldPotential), game_(game), strategy_(strategy), head_(head), motion_(motion), kick_(kick),
           actuation_(actuation), now_(now), stream_("k1_brain") {}
 
     ModuleInfo info() const override {
         return {"Rerun", {"FieldModel", "SelfState", "Observations", "LocalizationState",
-                            "BallState", "FieldPotential", "Strategy", "HeadRequest", "MotionRequest",
+                            "BallState", "FieldPotential", "GameState", "Strategy", "HeadRequest", "MotionRequest",
                             "KickRequest", "ActuationState", "FrameTime"}, {}};
     }
 
@@ -266,6 +266,7 @@ private:
         if(name == "LocalizationState") return localization_.detail();
         if(name == "BallState") return ball_.detail();
         if(name == "FieldPotential") return fieldPotential_.detail();
+        if(name == "GameState") return game_.detail();
         if(name == "Strategy") return strategy_.detail();
         if(name == "HeadRequest") return head_.detail();
         if(name == "MotionRequest") return motion_.detail();
@@ -419,6 +420,7 @@ private:
     const LocalizationState& localization_;
     const BallState& ball_;
     const FieldPotential& fieldPotential_;
+    const GameState& game_;
     const Strategy& strategy_;
     const HeadRequest& head_;
     const MotionRequest& motion_;

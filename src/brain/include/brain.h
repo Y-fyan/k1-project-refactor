@@ -7,6 +7,8 @@
 #include "modules/ball_state.hpp"
 #include "modules/field_potential.hpp"
 #include "modules/strategy.hpp"
+#include "modules/game_state.hpp"
+#include "modules/game_controller_return.hpp"
 #include "modules/skill.hpp"
 #include "modules/actuation.hpp"
 #include "modules/rerun.hpp"
@@ -25,7 +27,7 @@ public:
     typedef function<void(const string&)> LogSink;
     InputPort<Odometry> odometry;
     InputPort<JointData> joint;
-    InputPort<GameState> game;
+    InputPort<gc::Packet> game;
     InputPort<VisionState> vision;
     InputPort<FieldLines> fieldLines;
     InputPort<HeadPose> headPose;
@@ -41,12 +43,14 @@ public:
         scheduler_.add(self_);
         scheduler_.add(ball_);
         scheduler_.add(fieldPotential_);
+        scheduler_.add(game_);
         scheduler_.add(strategy_);
         scheduler_.add(skill_);
         scheduler_.add(actuation_);
+        scheduler_.add(feedback_);
         scheduler_.add(rerun_);
         scheduler_.configure(node);
-        scheduler_.prepare({"Odometry", "JointData", "GameState", "VisionState", "FrameTime",
+        scheduler_.prepare({"Odometry", "JointData", "GameControllerData", "VisionState", "FrameTime",
                             "FieldLines", "HeadPose", "RecoveryState"});
         const string dependencies = scheduler_.describe();
         rerun_.setSchedule(dependencies, scheduler_.planInfos(), scheduler_.externalInputs());
@@ -80,12 +84,14 @@ private:
     LocalizationModule localization_{field_.output, self_.output, observations_.output, frame_.now};
     BallStateModule ball_{observations_.output, frame_.now};
     FieldPotentialModule fieldPotential_{field_.output, localization_.output, ball_.output, observations_.output};
-    StrategyModule strategy_{ball_.output, frame_.now};
-    SkillModule skill_{strategy_.output, ball_.output, localization_.output,
+    GameStateModule game_{frame_.game, ball_.output, self_.output, field_.output, frame_.now};
+    StrategyModule strategy_{game_.output, ball_.output, frame_.now};
+    SkillModule skill_{game_.output, strategy_.output, ball_.output, localization_.output,
                        fieldPotential_.output, self_.output, frame_.now};
     ActuationModule actuation_{skill_.head, skill_.motion, skill_.kick};
+    GameControllerReturnModule feedback_{game_.output, self_.output, ball_.output, localization_.output, frame_.now};
     RerunModule rerun_{field_.output, self_.output, observations_.output,
-                       localization_.output, ball_.output, fieldPotential_.output, strategy_.output, skill_.head,
+                       localization_.output, ball_.output, fieldPotential_.output, game_.output, strategy_.output, skill_.head,
                        skill_.motion, skill_.kick, actuation_.output, frame_.now};
 
     Scheduler scheduler_;

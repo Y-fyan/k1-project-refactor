@@ -13,6 +13,7 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GameControlData.msg"
+  "msg/GameControlReturnData.msg"
   "msg/RobotInfo.msg"
   "msg/TeamInfo.msg"
 )
@@ -31,4 +32,6 @@ endif()
 
 ament_export_dependencies(rosidl_default_runtime)
 
+install(DIRECTORY include/ DESTINATION include)
+ament_export_include_directories(include)
 ament_package()

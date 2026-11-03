@@ -1,48 +1,31 @@
 #pragma once
-
-#include <iostream>
+#include <chrono>
 #include <string>
 #include <vector>
+#include <netinet/in.h>
 #include <rclcpp/rclcpp.hpp>
+#include <game_controller_interface/protocol.hpp>
+#include <game_controller_interface/msg/game_control_data.hpp>
+#include <game_controller_interface/msg/game_control_return_data.hpp>
 
-#include "RoboCupGameControlData.h"
-
-#include "game_controller_interface/msg/game_control_data.hpp"
-
-using namespace std;
-
-class GameControllerNode : public rclcpp::Node
-{
+class GameControllerNode : public rclcpp::Node {
 public:
-    GameControllerNode(string name);
+    explicit GameControllerNode(std::string name);
     ~GameControllerNode();
-
-    // 初始化 UDP Socket
     void init();
-
-    // 进入循环，接收 UDP 广播消息，处理后发布到 Ros2 Topic 中
-    void spin();
-
 private:
-    // 检查收到的包是否来自白名单机器
-    bool check_ip_white_list(string ip);
-
-    // 处理数据包（逐字段复制）
-    void handle_packet(HlRoboCupGameControlData &data, game_controller_interface::msg::GameControlData &msg);
-
-    // 监听端口，从配置文件读
-    int _port;
-    // 是否启用 IP 白名单
-    bool _enable_ip_white_list;
-    // IP 白名单列表
-    vector<string> _ip_white_list;
-
-    // UDP Socket
-    int _socket;
-    // thread
-    
-    thread _thread;
-
-    // Ros2 publisher
-    rclcpp::Publisher<game_controller_interface::msg::GameControlData>::SharedPtr _publisher;
+    static double now();
+    void poll();
+    void publish(const gc::Packet& packet);
+    int socket_ = -1, port_ = 3838, expectedTeam_ = 0;
+    bool whitelist_ = false;
+    std::vector<std::string> allowedIPs_;
+    sockaddr_in source_{};
+    gc::Sequence sequence_;
+    gc::Packet packet_;
+    gc::ReturnData feedback_;
+    double packetAt_ = 0, feedbackAt_ = 0, sentAt_ = 0;
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<game_controller_interface::msg::GameControlData>::SharedPtr publisher_;
+    rclcpp::Subscription<game_controller_interface::msg::GameControlReturnData>::SharedPtr feedbackSub_;
 };

@@ -1,0 +1,6 @@
+game_controller:
+  ros__parameters:
+    port: 3838
+    # 0 随 Brain 回报的队号过滤；单独运行接收节点时可显式指定。
+    expected_team_id: 0
+    enable_ip_white_list: false
